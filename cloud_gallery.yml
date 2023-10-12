@@ -1,0 +1,179 @@
+---
+- name: Media Gallery Cloud Deployment
+  hosts: my_vm  # Use the VM defined in your inventory file
+  become: yes  # Use superuser privileges for ts that require it
+
+  tasks:
+    # Task 1: Update and upgrade system packages on Ubuntu
+    - name: Update and upgrade system packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+      tags:
+        - t1
+
+
+    # Task 2: Install essential packages on Ubuntu
+    - name: Install essential packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - software-properties-common  # To manage software repositories
+        - apt-transport-https  # Required for adding Docker repository
+        - ca-certificates  # Required for Docker
+        - curl  # Required for Docker
+        - gnupg  # Required for Docker
+        - docker.io # Required for Docker
+        - docker-compose  # Docker Compose package
+      tags:
+        - t2
+
+    # Task 3: Add Docker GPG key and repository for Ubuntu 22.04
+    - name: Add Docker GPG key and repository
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      become: yes
+      when: ansible_distribution == 'Ubuntu' and ansible_distribution_version == '22.04'
+      tags:
+        - t3.1
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+      become: yes
+      when: ansible_distribution == 'Ubuntu' and ansible_distribution_version == '22.04'
+      tags:
+        - t3.2
+
+    # Task 4: Install Docker and Docker Compose
+    - name: Install Docker and Docker Compose
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - docker-ce
+        - docker-ce-cli
+      tags:
+        - t4
+        
+    - name: Copy Docker Compose systemd unit template
+      copy:
+        src: /home/student/project2/docker-compose.service.j2  # Local path to the template on your machine
+        dest: /etc/systemd/system/docker-compose@piwigo.service
+      become: yes
+      tags:
+        - docker-compose
+        - t4.2
+
+
+
+    # Task 5: Copy Docker Compose file to VM
+    - name: Copy Docker Compose file to VM
+      copy:
+        src: /home/student/project2/docker-compose.yml
+        dest: /home/ubuntu/docker-compose.yml  # Destination path on the VM
+      remote_user: ubuntu
+      tags:
+        - t5
+
+    # Task 6: Pull Docker images for Piwigo and MySQL
+    - name: Pull Docker images
+      become: yes
+      shell: docker pull "{{ item }}"
+      with_items:
+        - linuxserver/piwigo:latest
+        - mysql:latest
+      tags:
+        - t6
+
+    # Task 7: Start Docker containers using Docker Compose
+    - name: Start Docker containers
+      become: yes
+      shell: docker-compose up -d
+      args:
+        chdir: /home/ubuntu  # Adjust the path to the copied Docker Compose file
+      tags:
+        - t7
+
+    # Task 8: Ensure Docker and Docker Compose services start on boot
+    - name: Enable Docker service
+      service:
+        name: docker
+        enabled: yes
+        state: started
+      tags:
+        - docker-compose
+        - t8.1
+
+    - name: Enable Docker Compose service for piwigo
+      become: yes
+      systemd:
+        name: docker-compose@piwigo
+        enabled: yes
+        state: started
+      tags:
+        - docker-compose
+        - t8.2
+
+    # Task 9: Install Nginx and configure it as a reverse proxy
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+      tags:
+        - docker-compose
+        - t9.1
+
+    - name: Configure Nginx as a reverse proxy
+      template:
+        src: /home/student/project2/nginx-piwigo-config.j2  # path to your Nginx configuration template
+        dest: /etc/nginx/sites-available/piwigo  # Destination path on the VM
+      notify: Reload Nginx
+      tags:
+        - t9.2
+    
+    # Task 10: Ensure Nginx service starts on boot
+    - name: Enable Nginx service
+      service:
+        name: nginx
+        enabled: yes
+        state: started
+      tags:
+        - t10
+
+    # Task 11: Open ports (e.g., HTTP, HTTPS) in the firewall
+    - name: Open ports in the firewall
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      with_items:
+        - 80  # HTTP port
+        - 443  # HTTPS port
+      tags:
+        - t11
+        
+    # Task 12: Wait for Piwigo container to be healthy
+    - name: Wait for Piwigo container to be healthy
+      wait_for:
+        host: http://129.158.249.129:8080
+        state: started
+        timeout: 100
+      tags:
+        - t12
+
+
+
+    # Task 13: Add your post-deployment ts (e.g., setting up backups, monitoring)
+
+    # Task 14: Finalize your playbook with any necessary tags
+
+  handlers:
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
+
+

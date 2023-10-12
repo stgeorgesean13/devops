@@ -1,0 +1,15 @@
+[Unit]
+Description=Docker Compose Service for Piwigo
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/  # Path to your Docker Compose directory
+ExecStart=/usr/local/bin/docker-compose -f /home/ubuntu/docker-compose.yml up -d
+ExecStop=/usr/local/bin/docker-compose -f /home/ubuntu/docker-compose.yml down
+Restart=always
+User=ubuntu
+
+[Install]
+WantedBy=multi-user.target
+
